@@ -52,6 +52,13 @@ local Library = {
     -- never changes while the menu is in use
     WindowSize = UDim2.new(0, 640, 0, 760),
 
+    -- the window is fitted to the tab content every time a tab is shown; this is
+    -- the smallest it is allowed to get on almost empty pages
+    WindowMinHeight = 170,
+
+    -- space kept under the last section: tab bar plus a little breathing room
+    WindowChrome = 44,
+
     Animation = {
         Time = 0.3,
         Style = "Quint",
@@ -985,16 +992,15 @@ local Library = {
         Active = false,
         IconHidden = nil,
 
-        -- how fast the cross catches up with the pointer, in "per second" units.
+        -- how fast the dot catches up with the pointer, in "per second" units.
         -- higher is snappier, lower gives a longer glide. the step is converted to
         -- a frame-rate independent one, so the trail feels the same at 60, 144 and
         -- 240 fps instead of getting slower as fps rises
         Smoothness = 22,
 
-        -- crosshair shape: four arms around a small gap, plus a centre dot
-        ArmLength = 5,
-        ArmGap = 3,
-        Thickness = 1.5
+        -- a white dot with an accent outline: clean, and readable on dark and
+        -- bright scenes because of the ring around it
+        Size = 6
     } do
         local Cursor = Library.Cursor
 
@@ -1007,38 +1013,30 @@ local Library = {
             BorderSizePixel = 0
         })
 
-        local Reach = Cursor.ArmGap + Cursor.ArmLength / 2
-        local Thickness = Cursor.Thickness
-
-        local Arms = {
-            {Position = UDim2.new(0.5, 0, 0.5, -Reach), Size = UDim2.new(0, Thickness, 0, Cursor.ArmLength)},
-            {Position = UDim2.new(0.5, 0, 0.5, Reach), Size = UDim2.new(0, Thickness, 0, Cursor.ArmLength)},
-            {Position = UDim2.new(0.5, -Reach, 0.5, 0), Size = UDim2.new(0, Cursor.ArmLength, 0, Thickness)},
-            {Position = UDim2.new(0.5, Reach, 0.5, 0), Size = UDim2.new(0, Cursor.ArmLength, 0, Thickness)}
-        }
-
-        for _, Arm in Arms do 
-            Library:Create("Frame", {
-                Name = "\0",
-                Parent = Cursor.Holder.Instance,
-                AnchorPoint = Vector2.new(0.5, 0.5),
-                Position = Arm.Position,
-                Size = Arm.Size,
-                BorderSizePixel = 0,
-                BackgroundColor3 = Library.Theme["Accent"]
-            }):AddToTheme({BackgroundColor3 = 'Accent'})
-        end
-
-        -- the point in the middle of the gap, so there is still something to aim with
-        Library:Create("Frame", {
+        Cursor.Dot = Library:Create("Frame", {
             Name = "\0",
             Parent = Cursor.Holder.Instance,
             AnchorPoint = Vector2.new(0.5, 0.5),
             Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, 2, 0, 2),
+            Size = UDim2.new(0, Cursor.Size, 0, Cursor.Size),
             BorderSizePixel = 0,
-            BackgroundColor3 = Library.Theme["Accent"]
-        }):AddToTheme({BackgroundColor3 = 'Accent'})
+            BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        })
+
+        Library:Create("UICorner", {
+            Name = "\0",
+            Parent = Cursor.Dot.Instance,
+            CornerRadius = UDim.new(1, 0)
+        })
+
+        Library:Create("UIStroke", {
+            Name = "\0",
+            Parent = Cursor.Dot.Instance,
+            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+            LineJoinMode = Enum.LineJoinMode.Miter,
+            Color = Library.Theme["Accent"],
+            Thickness = 1
+        }):AddToTheme({Color = 'Accent'})
 
         Library:Connect(RunService.RenderStepped, function(Delta)
             if not Library then 
@@ -2939,6 +2937,47 @@ local Library = {
                 Outline:Tween({Size = Size, Position = Target}, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
             end
 
+            -- the window is only as tall as the tab being shown, so there is never a
+            -- strip of empty menu under the content. only the bottom edge moves: the
+            -- top of the window stays where the user put it
+            function Window:FitPage(Page)
+                Page = Page or Window.Current
+
+                if not Page or not Page.ColumnsData[1] then 
+                    return 
+                end
+
+                local Needed = math.max(
+                    Page.ColumnsData[1].Instance.AbsoluteCanvasSize.Y,
+                    Page.ColumnsData[2].Instance.AbsoluteCanvasSize.Y
+                )
+
+                -- nothing measured yet: the layout has not run for this page
+                if Needed <= 0 then 
+                    return 
+                end
+
+                local Height = math.clamp(Needed + Library.WindowChrome, Library.WindowMinHeight, Library.WindowSize.Y.Offset)
+                local Current = Items["Outline"].Instance.Size
+
+                if math.abs(Current.Y.Offset - Height) < 2 then 
+                    return 
+                end
+
+                Window.Size = UDim2.new(0, Current.X.Offset, 0, Height)
+                Items["Outline"].Minimum = Vector2.new(Current.X.Offset, Height)
+
+                -- the first fit lands instantly so the window never flashes at its
+                -- full size before the content is there
+                if not Window.Fitted then 
+                    Window.Fitted = true
+                    Items["Outline"].Instance.Size = Window.Size
+                    return
+                end
+
+                Items["Outline"]:Tween({Size = Window.Size}, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
+            end
+
             Library:Connect(UserInputService.InputBegan, function(Input)
                 if tostring(Input.KeyCode) == Library.MenuKeybind or tostring(Input.UserInputType) == Library.MenuKeybind then
                     if UserInputService:GetFocusedTextBox() then
@@ -3167,6 +3206,15 @@ local Library = {
 
                 Page.Window.Current = Page
                 Page.Active = true
+
+                -- the column canvases only report their real height once the page has
+                -- laid out, so the fit is retried for a couple of frames
+                task.spawn(function()
+                    for _ = 1, 3 do 
+                        task.wait()
+                        Page.Window:FitPage(Page)
+                    end
+                end)
             end
 
             Items["Inactive"]:Connect("MouseButton1Down", function()
