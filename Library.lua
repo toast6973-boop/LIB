@@ -956,7 +956,7 @@ local Library = {
         -- (stock roblox only renders its own assets). when this is set the picture
         -- is drawn instead of the shapes below, with its bottom faded out by a
         -- gradient. square-ish art fits best; it is fitted, never stretched
-        Image = nil,
+        Image = "https://raw.githubusercontent.com/toast6973-boop/LIB/refs/heads/main/mascot.png",
 
         -- square the picture is drawn on, and how far it sits from the corner
         ImageSize = 210,
@@ -990,17 +990,20 @@ local Library = {
         }
     }
 
-    function Library:BuildMascot()
+    -- ForceDrawn skips the picture and draws the shapes instead, which is the
+    -- fallback when an outside image never arrives
+    function Library:BuildMascot(ForceDrawn)
         local Mascot = Library.Mascot
         local Holder = Library.MascotHolder.Instance
+        local Image = not ForceDrawn and Mascot.Image or nil
 
         for _, Child in ipairs(Holder:GetChildren()) do 
-            if Child:IsA("Frame") then 
+            if Child:IsA("Frame") or Child:IsA("ImageLabel") then 
                 Child:Destroy()
             end
         end
 
-        local Box = if Mascot.Image then Mascot.ImageSize or Mascot.Size else Mascot.Size
+        local Box = if Image then Mascot.ImageSize or Mascot.Size else Mascot.Size
 
         local Root = Library:Create("Frame", {
             Name = "Mascot",
@@ -1014,14 +1017,14 @@ local Library = {
 
         -- an uploaded picture: one image label, with the bottom of the image
         -- faded out by a vertical gradient instead of a hard cut
-        if Mascot.Image then 
+        if Image then 
             local Art = Library:Create("ImageLabel", {
                 Name = "Art",
                 Parent = Root,
                 Size = UDim2.fromScale(1, 1),
                 BackgroundTransparency = 1,
                 BorderSizePixel = 0,
-                Image = Mascot.Image,
+                Image = Image,
                 ScaleType = Enum.ScaleType.Fit
             })
 
@@ -1035,6 +1038,22 @@ local Library = {
                     NumberSequenceKeypoint.new(1, Mascot.FadeStrength)
                 })
             })
+
+            -- roblox only loads its own assets unless the executor patches image
+            -- loading, and outside links can expire. if the picture never arrives,
+            -- draw the mascot instead of leaving an empty corner
+            task.delay(2, function()
+                if not Art.Instance or not Art.Instance.Parent then 
+                    return 
+                end
+
+                if Art.Instance.IsLoaded then 
+                    return 
+                end
+
+                warn("[rage.rip] mascot image did not load - drawing it instead")
+                Library:BuildMascot(true)
+            end)
 
             return Root
         end
@@ -5119,24 +5138,35 @@ local Library = {
                         end
                     })
 
-                    if Self.Watermark then
+                    -- Watermark and KeybindList are the constructors until the
+                    -- script actually makes one, so check for the built object: a
+                    -- function here would be indexed with SetVisibility and throw
+                    if type(Self.Watermark) == "table" then
                         MenuSection:Toggle({
                             Name = "Watermark",
                             Flag = "Watermark",
                             Default = true,
                             Callback = function(Value)
-                                Self.Watermark:SetVisibility(Value)
+                                local Watermark = Self.Watermark
+
+                                if type(Watermark) == "table" and Watermark.SetVisibility then 
+                                    Watermark:SetVisibility(Value)
+                                end
                             end
                         })
                     end
 
-                    if Self.KeybindList then 
+                    if type(Self.KeybindList) == "table" then 
                         MenuSection:Toggle({
                             Name = "Keybind list",
                             Flag = "Keybind list",
                             Default = true,
                             Callback = function(Value)
-                                Self.KeybindList:SetVisibility(Value)
+                                local KeybindList = Self.KeybindList
+
+                                if type(KeybindList) == "table" and KeybindList.SetVisibility then 
+                                    KeybindList:SetVisibility(Value)
+                                end
                             end
                         })
                     end
