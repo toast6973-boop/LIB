@@ -963,10 +963,10 @@ local Library = {
         Version = "1",
 
         -- square the picture is drawn on, and how far it sits from the corner
-        ImageSize = 210,
+        ImageSize = 420,
 
         -- used by the drawn fallback below, when Image is nil
-        Size = 132,
+        Size = 264,
         Margin = 26,
 
         -- rows in the silhouette: more rows means a rounder shape and a smoother
