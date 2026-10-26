@@ -261,6 +261,10 @@ local Library = {
             Self.UnusedHolder.Instance:Destroy()
         end
 
+        if Self.MascotHolder then 
+            Self.MascotHolder.Instance:Destroy()
+        end
+
         for Index, Value in Library.Notifications do 
             Value.Items.Notification.Instance:Destroy()
         end
@@ -931,6 +935,176 @@ local Library = {
 
         Element:Refresh(ReturnList)
     end
+
+    -- mascot: drawn from plain frames, so it needs no uploaded decal. it sits in
+    -- the bottom right of the screen while a window is open, and the silhouette is
+    -- built as a stack of rows so its bottom can fade row by row instead of
+    -- ending on a hard edge
+    Library.MascotHolder = Library:Create("ScreenGui", {
+        Parent = gethui(),
+        IgnoreGuiInset = false,
+        Name = "\0",
+        Enabled = false,
+        DisplayOrder = 0,
+        ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        ResetOnSpawn = false
+    })
+
+    Library.Mascot = {
+        -- the picture to draw: an uploaded roblox decal ("rbxassetid://123456"), or
+        -- a direct https link when the executor is patched to load outside images
+        -- (stock roblox only renders its own assets). when this is set the picture
+        -- is drawn instead of the shapes below, with its bottom faded out by a
+        -- gradient. square-ish art fits best; it is fitted, never stretched
+        Image = nil,
+
+        -- square the picture is drawn on, and how far it sits from the corner
+        ImageSize = 210,
+
+        -- used by the drawn fallback below, when Image is nil
+        Size = 132,
+        Margin = 26,
+
+        -- rows in the silhouette: more rows means a rounder shape and a smoother
+        -- fade, fewer is cheaper
+        Rows = 44,
+
+        -- the fade starts this far down (0 = top, 1 = bottom) and reaches this
+        -- much transparency at the very bottom, so the mascot melts into the game
+        FadeStart = 0.58,
+        FadeStrength = 0.94,
+
+        -- width of the silhouette at a height, 0..1 of Size. a circle by default;
+        -- replace this function and call Library:BuildMascot() for another shape
+        Profile = function(T)
+            return math.sqrt(math.max(0, 1 - (T * 2 - 1) ^ 2))
+        end,
+
+        -- a theme key, so it turns red with the rest of the menu
+        Colour = "Accent",
+
+        -- eyes: { x, y, size } on a 0..1 grid of the square
+        Eyes = {
+            { 0.35, 0.36, 0.13 },
+            { 0.65, 0.36, 0.13 },
+        }
+    }
+
+    function Library:BuildMascot()
+        local Mascot = Library.Mascot
+        local Holder = Library.MascotHolder.Instance
+
+        for _, Child in ipairs(Holder:GetChildren()) do 
+            if Child:IsA("Frame") then 
+                Child:Destroy()
+            end
+        end
+
+        local Box = if Mascot.Image then Mascot.ImageSize or Mascot.Size else Mascot.Size
+
+        local Root = Library:Create("Frame", {
+            Name = "Mascot",
+            Parent = Holder,
+            AnchorPoint = Vector2.new(1, 1),
+            Position = UDim2.new(1, -Mascot.Margin, 1, -Mascot.Margin),
+            Size = UDim2.fromOffset(Box, Box),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0
+        }).Instance
+
+        -- an uploaded picture: one image label, with the bottom of the image
+        -- faded out by a vertical gradient instead of a hard cut
+        if Mascot.Image then 
+            local Art = Library:Create("ImageLabel", {
+                Name = "Art",
+                Parent = Root,
+                Size = UDim2.fromScale(1, 1),
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Image = Mascot.Image,
+                ScaleType = Enum.ScaleType.Fit
+            })
+
+            Library:Create("UIGradient", {
+                Name = "\0",
+                Parent = Art.Instance,
+                Rotation = 90,
+                Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0),
+                    NumberSequenceKeypoint.new(Mascot.FadeStart, 0),
+                    NumberSequenceKeypoint.new(1, Mascot.FadeStrength)
+                })
+            })
+
+            return Root
+        end
+
+        local Rows = math.max(1, Mascot.Rows)
+        local RowHeight = 1 / Rows
+
+        for Index = 0, Rows - 1 do 
+            local T = (Index + 1) * RowHeight
+            local Width = math.clamp(Mascot.Profile(T), 0, 1)
+
+            if Width > 0.01 then 
+                local Fade = 0
+
+                if T > Mascot.FadeStart then 
+                    Fade = ((T - Mascot.FadeStart) / (1 - Mascot.FadeStart)) * Mascot.FadeStrength
+                end
+
+                Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Root,
+                    Position = UDim2.fromScale((1 - Width) / 2, Index * RowHeight),
+                    Size = UDim2.fromScale(Width, RowHeight * 1.05),
+                    BackgroundColor3 = Library.Theme[Mascot.Colour],
+                    BackgroundTransparency = Fade,
+                    BorderSizePixel = 0,
+                    ZIndex = 1
+                }):AddToTheme({BackgroundColor3 = Mascot.Colour})
+            end
+        end
+
+        for _, Eye in ipairs(Mascot.Eyes) do 
+            local Dot = Library:Create("Frame", {
+                Name = "\0",
+                Parent = Root,
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = UDim2.fromScale(Eye[1], Eye[2]),
+                Size = UDim2.fromScale(Eye[3], Eye[3]),
+                BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+                BorderSizePixel = 0,
+                ZIndex = 2
+            })
+
+            Library:Create("UICorner", {
+                Name = "\0",
+                Parent = Dot.Instance,
+                CornerRadius = UDim.new(1, 0)
+            })
+        end
+
+        return Root
+    end
+
+    Library:BuildMascot()
+
+    -- only shown while there is a menu on screen, like the window itself
+    Library:Connect(RunService.RenderStepped, function()
+        local Open = false
+
+        for _, Entry in Library.Windows do 
+            if Entry.IsOpen then 
+                Open = true
+                break
+            end
+        end
+
+        if Open ~= Library.MascotHolder.Instance.Enabled then 
+            Library.MascotHolder.Instance.Enabled = Open
+        end
+    end)
 
     Library.Holder = Library:Create("ScreenGui", {
         Parent = gethui(),
