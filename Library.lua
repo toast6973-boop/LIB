@@ -47,12 +47,10 @@ local Library = {
 
     FontSize = 12,
 
-    -- the menu is laid out at this size and scaled down to fit small viewports
-    WindowSize = UDim2.new(0, 640, 0, 800),
-
+    -- the menu is laid out at this size and scaled down to fit small viewports.
     -- every tab is exactly this tall, always: switching tabs never resizes the
     -- window. a page marked Small (the license gate) keeps its own short height
-    WindowTabHeight = 800,
+    WindowSize = UDim2.new(0, 640, 0, 900),
     WindowSmallHeight = 200,
 
     Animation = {
@@ -2816,7 +2814,7 @@ local Library = {
             function Window:ApplyPageHeight(Page)
                 Page = Page or Window.Current
 
-                local Height = Page and Page.Small and Library.WindowSmallHeight or Library.WindowTabHeight
+                local Height = Page and Page.Small and Library.WindowSmallHeight or Library.WindowSize.Y.Offset
 
                 local Instant = not Window.Sized
                 Window.Sized = true
