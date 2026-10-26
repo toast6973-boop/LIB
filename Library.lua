@@ -47,17 +47,13 @@ local Library = {
 
     FontSize = 12,
 
-    -- the widest the menu gets, and the cap for the measured tab height. it is
-    -- scaled down to the viewport on small screens
+    -- the menu is laid out at this size and scaled down to fit small viewports
     WindowSize = UDim2.new(0, 640, 0, 800),
 
-    -- a page marked Small (the license gate) keeps this height to itself; every
-    -- other tab shares one height measured from the fullest of them
+    -- every tab is exactly this tall, always: switching tabs never resizes the
+    -- window. a page marked Small (the license gate) keeps its own short height
+    WindowTabHeight = 800,
     WindowSmallHeight = 200,
-    WindowMinHeight = 300,
-
-    -- space above the columns: the tab bar plus the 1px borders
-    WindowChrome = 34,
 
     Animation = {
         Time = 0.3,
@@ -273,18 +269,6 @@ local Library = {
 
         if Self.NotifHolder then 
             Self.NotifHolder.Instance:Destroy()
-        end
-
-        if Self.CursorHolder then 
-            Self.CursorHolder.Instance:Destroy()
-        end
-
-        -- the pointer belongs to the game again once the menu is gone
-        if Self.Cursor and Self.Cursor.IconHidden ~= nil then
-            pcall(function()
-                UserInputService.MouseIconEnabled = Self.Cursor.IconHidden
-            end)
-            Self.Cursor.IconHidden = nil
         end
 
         Library = nil
@@ -973,132 +957,6 @@ local Library = {
         ZIndexBehavior = Enum.ZIndexBehavior.Global,
         ResetOnSpawn = false
     })
-
-    -- cursor: while a window is open the hardware pointer is hidden and this tiny
-    -- ring and dot take its place, gliding after the real mouse position with a
-    -- lerp instead of snapping to it
-    Library.CursorHolder = Library:Create("ScreenGui", {
-        Parent = gethui(),
-        IgnoreGuiInset = true,
-        Name = "\0",
-        Enabled = false,
-        DisplayOrder = 1000000,
-        ZIndexBehavior = Enum.ZIndexBehavior.Global,
-        ResetOnSpawn = false
-    })
-
-    Library.Cursor = {
-        Position = Vector2.new(0, 0),
-        Active = false,
-        IconHidden = nil,
-
-        -- how fast the dot catches up with the pointer, in "per second" units.
-        -- higher is snappier, lower gives a longer glide. the step is converted to
-        -- a frame-rate independent one, so the trail feels the same at 60, 144 and
-        -- 240 fps instead of getting slower as fps rises
-        Smoothness = 26,
-
-        -- a tiny white pixel sitting on an accent (red here) dot: minimalist,
-        -- and readable on dark and bright scenes because of the red under it
-        Size = 7,
-        Core = 3
-    } do
-        local Cursor = Library.Cursor
-
-        Cursor.Holder = Library:Create("Frame", {
-            Name = "\0",
-            Parent = Library.CursorHolder.Instance,
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Size = UDim2.new(0, 0, 0, 0),
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0
-        })
-
-        Cursor.Dot = Library:Create("Frame", {
-            Name = "\0",
-            Parent = Cursor.Holder.Instance,
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, Cursor.Size, 0, Cursor.Size),
-            BorderSizePixel = 0,
-            BackgroundColor3 = Library.Theme["Accent"]
-        }):AddToTheme({BackgroundColor3 = 'Accent'})
-
-        Library:Create("UICorner", {
-            Name = "\0",
-            Parent = Cursor.Dot.Instance,
-            CornerRadius = UDim.new(1, 0)
-        })
-
-        -- the white centre: no stroke, no outline, just a pixel on the dot
-        Cursor.Core = Library:Create("Frame", {
-            Name = "\0",
-            Parent = Cursor.Dot.Instance,
-            AnchorPoint = Vector2.new(0.5, 0.5),
-            Position = UDim2.new(0.5, 0, 0.5, 0),
-            Size = UDim2.new(0, Cursor.Core, 0, Cursor.Core),
-            BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-            BorderSizePixel = 0
-        })
-
-        Library:Create("UICorner", {
-            Name = "\0",
-            Parent = Cursor.Core.Instance,
-            CornerRadius = UDim.new(1, 0)
-        })
-
-        Library:Connect(RunService.RenderStepped, function(Delta)
-            if not Library then 
-                return 
-            end
-
-            local Open = false
-
-            for _, Entry in Library.Windows do 
-                if Entry.IsOpen then 
-                    Open = true 
-                    break
-                end
-            end
-
-            Open = Open and UserInputService.MouseEnabled
-
-            if Open ~= Cursor.Active then 
-                Cursor.Active = Open
-                Cursor.Position = UserInputService:GetMouseLocation()
-                Library.CursorHolder.Instance.Enabled = Open
-
-                if Open then 
-                    if Cursor.IconHidden == nil then 
-                        Cursor.IconHidden = UserInputService.MouseIconEnabled
-                    end
-
-                    UserInputService.MouseIconEnabled = false
-                elseif Cursor.IconHidden ~= nil then 
-                    UserInputService.MouseIconEnabled = Cursor.IconHidden
-                    Cursor.IconHidden = nil
-                end
-            end
-
-            if not Open then 
-                return 
-            end
-
-            -- the pointer is hidden while the menu is up, so it is held hidden even
-            -- if the game tries to turn it back on
-            UserInputService.MouseIconEnabled = false
-
-            local Target = UserInputService:GetMouseLocation()
-
-            -- exponential smoothing: the fraction covered per frame follows the
-            -- frame time, so a faster loop means smaller steps rather than a
-            -- slower cursor. Delta is capped so a lag spike cannot teleport it
-            local Alpha = 1 - math.exp(-math.min(Delta, 0.1) * Cursor.Smoothness)
-            Cursor.Position = Cursor.Position:Lerp(Target, Alpha)
-
-            Cursor.Holder.Instance.Position = UDim2.fromOffset(Cursor.Position.X, Cursor.Position.Y)
-        end)
-    end
 
     -- themes
     Library:Thread(function()
@@ -2952,95 +2810,17 @@ local Library = {
                 Outline:Tween({Size = Size, Position = Target}, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
             end
 
-            -- how tall the sections on a page are. measured from the column's list
-            -- layout, not its canvas: a ScrollingFrame's canvas never gets shorter
-            -- than the frame, so the canvas would always read as "full window"
-            function Window:PageContentHeight(Page)
-                if not Page or not Page.ColumnsData[1] then 
-                    return 0
-                end
-
-                local function ColumnHeight(Column)
-                    local Instance = Column.Instance
-                    local Layout = Instance:FindFirstChildOfClass("UIListLayout")
-                    local Height = Layout and Layout.AbsoluteContentSize.Y or 0
-
-                    if Height <= 0 then 
-                        for _, Child in ipairs(Instance:GetChildren()) do
-                            if Child:IsA("GuiObject") then 
-                                Height += Child.AbsoluteSize.Y
-                            end
-                        end
-                    end
-
-                    -- nothing on this side: report nothing, so the padding below
-                    -- cannot make a broken measurement look like a real one
-                    if Height <= 0 then 
-                        return 0
-                    end
-
-                    local Padding = Instance:FindFirstChildOfClass("UIPadding")
-
-                    if Padding then 
-                        Height += Padding.PaddingTop.Offset + Padding.PaddingBottom.Offset
-                    end
-
-                    return Height
-                end
-
-                return math.max(ColumnHeight(Page.ColumnsData[1]), ColumnHeight(Page.ColumnsData[2]))
-            end
-
             -- one height for every tab, except a page that asked to stay small (the
             -- license gate). the first one lands instantly so nothing flashes at the
-            -- full size, later tab switches only move if the height is really new
+            -- full size; after that only the license page ever changes it
             function Window:ApplyPageHeight(Page)
                 Page = Page or Window.Current
 
-                local Height = Page and Page.Small and Library.WindowSmallHeight or Window.TabHeight
-
-                if not Height then 
-                    return 
-                end
+                local Height = Page and Page.Small and Library.WindowSmallHeight or Library.WindowTabHeight
 
                 local Instant = not Window.Sized
                 Window.Sized = true
                 Window:SetSize(UDim2.new(0, Library.WindowSize.X.Offset, 0, Height), Instant)
-            end
-
-            -- measures every tab once and keeps the tallest as the shared height, so
-            -- the fullest tab fits without scrolling and no tab resizes when it is
-            -- switched to. called once the script has built its pages
-            function Window:MeasureTabs()
-                task.spawn(function()
-                    local Tallest = 0
-
-                    for Attempt = 1, 4 do 
-                        Tallest = 0
-
-                        for _, Entry in ipairs(Window.Pages) do 
-                            if not Entry.Small then 
-                                Tallest = math.max(Tallest, Window:PageContentHeight(Entry))
-                            end
-                        end
-
-                        if Tallest > 0 or Attempt == 4 then 
-                            break
-                        end
-
-                        task.wait()
-                    end
-
-                    if Tallest > 0 then 
-                        Window.TabHeight = math.clamp(Tallest + Library.WindowChrome, Library.WindowMinHeight, Library.WindowSize.Y.Offset)
-                    else
-                        -- could not measure anything: stay at the full layout instead
-                        -- of leaving the menu as a strip
-                        Window.TabHeight = Library.WindowSize.Y.Offset
-                    end
-
-                    Window:ApplyPageHeight(Window.Current)
-                end)
             end
 
             Library:Connect(UserInputService.InputBegan, function(Input)
