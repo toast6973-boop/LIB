@@ -50,7 +50,7 @@ local Library = {
     -- the menu is laid out at this size and then scaled down to fit the viewport,
     -- so the fullest tab is visible without scrolling or resizing and the size
     -- never changes while the menu is in use
-    WindowSize = UDim2.new(0, 640, 0, 700),
+    WindowSize = UDim2.new(0, 640, 0, 760),
 
     Animation = {
         Time = 0.3,
@@ -471,13 +471,15 @@ local Library = {
         local Set = function(Input)
             local Scale = Library:GetScreenScale()
             local DragDelta = (Input.Position - DragStart) / Scale
-            
-            local NewX = StartPosition.X.Offset + DragDelta.X
-            local NewY = StartPosition.Y.Offset + DragDelta.Y
 
             local ScreenSize = Gui.Parent.AbsoluteSize / Scale
             local GuiSize = Gui.AbsoluteSize / Scale
             local Anchor = Gui.AnchorPoint
+
+            -- scale and offset are folded into one offset, so a frame placed with
+            -- UDim2.new(1, -10, ...) starts dragging from where it actually sits
+            local NewX = StartPosition.X.Scale * ScreenSize.X + StartPosition.X.Offset + DragDelta.X
+            local NewY = StartPosition.Y.Scale * ScreenSize.Y + StartPosition.Y.Offset + DragDelta.Y
 
             -- the clamp follows the anchor, so a frame anchored to the right (like the
             -- watermark) is kept fully on screen instead of being pushed off it
