@@ -991,7 +991,11 @@ local Library = {
         Eyes = {
             { 0.35, 0.36, 0.13 },
             { 0.65, 0.36, 0.13 },
-        }
+        },
+
+        -- called when she is clicked, with the mascot frame as the argument. the
+        -- library only wires the click, so the script decides what it does
+        OnClick = nil
     }
 
     -- a plain web link is never drawn by roblox, but an executor can save the
@@ -1063,6 +1067,33 @@ local Library = {
             BackgroundTransparency = 1,
             BorderSizePixel = 0
         }).Instance
+
+        -- a transparent button laid over her, so a click anywhere on the mascot is
+        -- caught without the art or the drawn rows having to be clickable. it sits
+        -- above both, and it is the only part of the mascot that takes input
+        local Hit = Library:Create("TextButton", {
+            Name = "Hit",
+            Parent = Root,
+            Size = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            Text = "",
+            AutoButtonColor = false,
+            ZIndex = 5
+        })
+
+        Hit.Instance.MouseButton1Click:Connect(function()
+            local Callback = Library.Mascot.OnClick
+
+            if type(Callback) ~= "function" then 
+                return 
+            end
+
+            local Ok, Err = pcall(Callback, Root)
+
+            if not Ok then 
+                warn("[rage.rip] mascot click failed: " .. tostring(Err))
+            end
+        end)
 
         -- an uploaded picture: one image label, with the bottom of the image
         -- faded out by a vertical gradient instead of a hard cut
