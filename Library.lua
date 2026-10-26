@@ -527,6 +527,10 @@ local Library = {
             return
         end
 
+        -- the minimum can be replaced later (Window:SetSize does), so it is kept on
+        -- the item and read when the drag happens instead of only here
+        Self.Minimum = Self.Minimum or Minimum
+
         local Gui = Self.Instance
 
         local Resizing = false 
@@ -649,17 +653,19 @@ local Library = {
                 h = StartSize.Y + dy
             end
         
-            if w < Minimum.X then
+            local Min = Self.Minimum or Minimum
+
+            if w < Min.X then
                 if CurrentSide == "L" then
-                    x = x - (Minimum.X - w)
+                    x = x - (Min.X - w)
                 end
-                w = Minimum.X
+                w = Min.X
             end
-            if h < Minimum.Y then
+            if h < Min.Y then
                 if CurrentSide == "T" then
-                    y = y - (Minimum.Y - h)
+                    y = y - (Min.Y - h)
                 end
-                h = Minimum.Y
+                h = Min.Y
             end
         
             Self:Tween({Position = UDim2.fromOffset(x, y)}, TweenInfo.new(0.65, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out))
@@ -977,48 +983,62 @@ local Library = {
     Library.Cursor = {
         Position = Vector2.new(0, 0),
         Active = false,
-        IconHidden = nil
+        IconHidden = nil,
+
+        -- how fast the cross catches up with the pointer, in "per second" units.
+        -- higher is snappier, lower gives a longer glide. the step is converted to
+        -- a frame-rate independent one, so the trail feels the same at 60, 144 and
+        -- 240 fps instead of getting slower as fps rises
+        Smoothness = 22,
+
+        -- crosshair shape: four arms around a small gap, plus a centre dot
+        ArmLength = 5,
+        ArmGap = 3,
+        Thickness = 1.5
     } do
         local Cursor = Library.Cursor
 
-        Cursor.Ring = Library:Create("Frame", {
+        Cursor.Holder = Library:Create("Frame", {
             Name = "\0",
             Parent = Library.CursorHolder.Instance,
             AnchorPoint = Vector2.new(0.5, 0.5),
-            Size = UDim2.new(0, 9, 0, 9),
+            Size = UDim2.new(0, 0, 0, 0),
             BackgroundTransparency = 1,
             BorderSizePixel = 0
         })
 
-        Library:Create("UICorner", {
-            Name = "\0",
-            Parent = Cursor.Ring.Instance,
-            CornerRadius = UDim.new(1, 0)
-        })
+        local Reach = Cursor.ArmGap + Cursor.ArmLength / 2
+        local Thickness = Cursor.Thickness
 
-        Library:Create("UIStroke", {
-            Name = "\0",
-            Parent = Cursor.Ring.Instance,
-            ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-            LineJoinMode = Enum.LineJoinMode.Miter,
-            Color = Library.Theme["Accent"],
-            Thickness = 1
-        }):AddToTheme({Color = 'Accent'})
+        local Arms = {
+            {Position = UDim2.new(0.5, 0, 0.5, -Reach), Size = UDim2.new(0, Thickness, 0, Cursor.ArmLength)},
+            {Position = UDim2.new(0.5, 0, 0.5, Reach), Size = UDim2.new(0, Thickness, 0, Cursor.ArmLength)},
+            {Position = UDim2.new(0.5, -Reach, 0.5, 0), Size = UDim2.new(0, Cursor.ArmLength, 0, Thickness)},
+            {Position = UDim2.new(0.5, Reach, 0.5, 0), Size = UDim2.new(0, Cursor.ArmLength, 0, Thickness)}
+        }
 
-        Cursor.Dot = Library:Create("Frame", {
+        for _, Arm in Arms do 
+            Library:Create("Frame", {
+                Name = "\0",
+                Parent = Cursor.Holder.Instance,
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                Position = Arm.Position,
+                Size = Arm.Size,
+                BorderSizePixel = 0,
+                BackgroundColor3 = Library.Theme["Accent"]
+            }):AddToTheme({BackgroundColor3 = 'Accent'})
+        end
+
+        -- the point in the middle of the gap, so there is still something to aim with
+        Library:Create("Frame", {
             Name = "\0",
-            Parent = Library.CursorHolder.Instance,
+            Parent = Cursor.Holder.Instance,
             AnchorPoint = Vector2.new(0.5, 0.5),
-            Size = UDim2.new(0, 3, 0, 3),
+            Position = UDim2.new(0.5, 0, 0.5, 0),
+            Size = UDim2.new(0, 2, 0, 2),
             BorderSizePixel = 0,
             BackgroundColor3 = Library.Theme["Accent"]
         }):AddToTheme({BackgroundColor3 = 'Accent'})
-
-        Library:Create("UICorner", {
-            Name = "\0",
-            Parent = Cursor.Dot.Instance,
-            CornerRadius = UDim.new(1, 0)
-        })
 
         Library:Connect(RunService.RenderStepped, function(Delta)
             if not Library then 
@@ -1062,11 +1082,14 @@ local Library = {
             UserInputService.MouseIconEnabled = false
 
             local Target = UserInputService:GetMouseLocation()
-            Cursor.Position = Cursor.Position:Lerp(Target, math.clamp(Delta * 22, 0, 1))
 
-            local Place = UDim2.fromOffset(Cursor.Position.X, Cursor.Position.Y)
-            Cursor.Ring.Instance.Position = Place
-            Cursor.Dot.Instance.Position = Place
+            -- exponential smoothing: the fraction covered per frame follows the
+            -- frame time, so a faster loop means smaller steps rather than a
+            -- slower cursor. Delta is capped so a lag spike cannot teleport it
+            local Alpha = 1 - math.exp(-math.min(Delta, 0.1) * Cursor.Smoothness)
+            Cursor.Position = Cursor.Position:Lerp(Target, Alpha)
+
+            Cursor.Holder.Instance.Position = UDim2.fromOffset(Cursor.Position.X, Cursor.Position.Y)
         end)
     end
 
@@ -2880,15 +2903,40 @@ local Library = {
                 end
             end
 
-            function Window:Center()
+            -- puts the window in the middle of the viewport (not the whole screen, which
+            -- the top bar makes taller). computed rather than measured, so it can be
+            -- called again whenever the size changes
+            function Window:Center(Size)
                 local Scale = Library:GetScreenScale()
-                local AbsPos = Items["Outline"].Instance.AbsolutePosition
-                Items["Outline"].Instance.AnchorPoint = Vector2.new(0, 0)
-                task.wait()
+                local Outline = Items["Outline"].Instance
+                local Screen = Outline.Parent.AbsoluteSize / Scale
 
-                -- an absolute position already has the holder's UIScale baked into it,
-                -- so it is divided back out before it is written as an offset
-                Items["Outline"].Instance.Position = UDim2.new(0, AbsPos.X / Scale, 0, (AbsPos.Y + GuiInset) / Scale)
+                Size = Size or Window.Size or Library.WindowSize
+
+                Outline.AnchorPoint = Vector2.new(0, 0)
+                Outline.Position = UDim2.new(0, Screen.X / 2 - Size.X.Offset / 2, 0, Screen.Y / 2 - Size.Y.Offset / 2 + GuiInset / Scale)
+            end
+
+            -- grow or shrink the window from the script. the key prompt uses it to stay
+            -- compact until the menu behind it exists, and it grows back after that.
+            -- the resize handles follow whatever size was set last
+            function Window:SetSize(Size, Instant)
+                local Outline = Items["Outline"]
+
+                Window.Size = Size
+                Outline.Minimum = Vector2.new(Size.X.Offset, Size.Y.Offset)
+
+                if Instant then 
+                    Outline.Instance.Size = Size
+                    Window:Center(Size)
+                    return
+                end
+
+                local Scale = Library:GetScreenScale()
+                local Screen = Outline.Instance.Parent.AbsoluteSize / Scale
+                local Target = UDim2.new(0, Screen.X / 2 - Size.X.Offset / 2, 0, Screen.Y / 2 - Size.Y.Offset / 2 + GuiInset / Scale)
+
+                Outline:Tween({Size = Size, Position = Target}, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
             end
 
             Library:Connect(UserInputService.InputBegan, function(Input)
