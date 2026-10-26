@@ -2609,6 +2609,14 @@ local Library = {
                 -- the fullest tab, and one UIScale fits that layout to the viewport so
                 -- nothing is ever cut off or needs scrolling. made once, never changed
                 local Viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
+
+                -- a camera that has not reported a size yet would make the fit
+                -- negative, so fall back to a normal viewport instead of scaling
+                -- the whole menu to nothing
+                if Viewport.X < 100 or Viewport.Y < 100 then 
+                    Viewport = Vector2.new(1280, 720)
+                end
+
                 local Width = Library.WindowSize.X.Offset
                 local Height = Library.WindowSize.Y.Offset
                 local Fit = math.min(1, (Viewport.X - 40) / Width, (Viewport.Y - 40) / Height)
@@ -2616,6 +2624,8 @@ local Library = {
                 if IsMobile then 
                     Fit *= 0.7
                 end
+
+                Fit = math.clamp(Fit, 0.3, 1)
 
                 if not Library.Scale then 
                     Library.Scale = Library:Create("UIScale", {
