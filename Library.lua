@@ -958,6 +958,10 @@ local Library = {
         -- gradient. square-ish art fits best; it is fitted, never stretched
         Image = "https://raw.githubusercontent.com/toast6973-boop/LIB/refs/heads/main/mascot.png",
 
+        -- the picture is downloaded once and cached on disk. bump this when the
+        -- file at that link changes, otherwise the cached copy is used
+        Version = "1",
+
         -- square the picture is drawn on, and how far it sits from the corner
         ImageSize = 210,
 
@@ -990,12 +994,57 @@ local Library = {
         }
     }
 
+    -- a plain web link is never drawn by roblox, but an executor can save the
+    -- download to disk and hand back a local asset that it will draw. cached in the
+    -- library folder, so it is fetched once and keeps its full resolution
+    function Library:ResolveMascotImage()
+        local Mascot = Library.Mascot
+        local Source = Mascot.Image
+
+        if type(Source) ~= "string" or Source == "" then 
+            return nil
+        end
+
+        -- already an asset id (or another local asset): nothing to download
+        if Source:match("^rbxasset") then 
+            return Source
+        end
+
+        if type(getcustomasset) ~= "function" or type(writefile) ~= "function" then 
+            return nil
+        end
+
+        local Path = Library.Directory .. Library.Folders.Assets .. "/mascot-" .. tostring(Mascot.Version or "1") .. ".png"
+
+        if not (type(isfile) == "function" and isfile(Path)) then 
+            local Saved = pcall(function()
+                writefile(Path, game:HttpGet(Source))
+            end)
+
+            if not Saved then 
+                return nil
+            end
+        end
+
+        local Ok, Asset = pcall(getcustomasset, Path)
+
+        if not Ok or type(Asset) ~= "string" then 
+            return nil
+        end
+
+        return Asset
+    end
+
     -- ForceDrawn skips the picture and draws the shapes instead, which is the
     -- fallback when an outside image never arrives
     function Library:BuildMascot(ForceDrawn)
         local Mascot = Library.Mascot
         local Holder = Library.MascotHolder.Instance
-        local Image = not ForceDrawn and Mascot.Image or nil
+        local Image = not ForceDrawn and Library:ResolveMascotImage() or nil
+
+        if not ForceDrawn and Mascot.Image and not Image then 
+            warn("[rage.rip] mascot image could not be loaded - drawing it instead")
+        end
 
         for _, Child in ipairs(Holder:GetChildren()) do 
             if Child:IsA("Frame") or Child:IsA("ImageLabel") then 
