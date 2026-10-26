@@ -47,18 +47,9 @@ local Library = {
 
     FontSize = 12,
 
-    -- the menu is laid out at this size and then scaled down to fit the viewport,
-    -- so the fullest tab is visible without scrolling or resizing and the size
-    -- never changes while the menu is in use
-    WindowSize = UDim2.new(0, 640, 0, 760),
-
-    -- the window is fitted to the tab content every time a tab is shown; this is
-    -- the smallest it is allowed to get on almost empty pages
-    WindowMinHeight = 170,
-
-    -- the tab bar and the 1px borders around it; the section padding is measured
-    -- from the column itself, so this is only the fixed part above the columns
-    WindowChrome = 34,
+    -- one fixed size for the whole menu, scaled down to the viewport on small
+    -- screens. it never resizes between tabs, so the layout stays put
+    WindowSize = UDim2.new(0, 640, 0, 800),
 
     Animation = {
         Time = 0.3,
@@ -2939,67 +2930,6 @@ local Library = {
                 Outline:Tween({Size = Size, Position = Target}, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
             end
 
-            -- the window is only as tall as the tab being shown, so there is never a
-            -- strip of empty menu under the content. only the bottom edge moves: the
-            -- top of the window stays where the user put it
-            function Window:FitPage(Page)
-                Page = Page or Window.Current
-
-                if not Page or not Page.ColumnsData[1] then 
-                    return 
-                end
-
-                -- measured from the column's list layout, not its canvas: a
-                -- ScrollingFrame's canvas never gets shorter than the frame, so
-                -- the canvas height read as "full window" and the window never
-                -- shrank no matter how little was on the tab
-                local function ColumnHeight(Column)
-                    local Instance = Column.Instance
-                    local Layout = Instance:FindFirstChildOfClass("UIListLayout")
-                    local Height = Layout and Layout.AbsoluteContentSize.Y or 0
-
-                    if Height <= 0 then 
-                        for _, Child in ipairs(Instance:GetChildren()) do
-                            if Child:IsA("GuiObject") then 
-                                Height += Child.AbsoluteSize.Y
-                            end
-                        end
-                    end
-
-                    return Height
-                end
-
-                local Needed = math.max(
-                    ColumnHeight(Page.ColumnsData[1]),
-                    ColumnHeight(Page.ColumnsData[2])
-                )
-
-                -- nothing measured yet: the layout has not run for this page
-                if Needed <= 0 then 
-                    return 
-                end
-
-                local Height = math.clamp(Needed + Library.WindowChrome, Library.WindowMinHeight, Library.WindowSize.Y.Offset)
-                local Current = Items["Outline"].Instance.Size
-
-                if math.abs(Current.Y.Offset - Height) < 2 then 
-                    return 
-                end
-
-                Window.Size = UDim2.new(0, Current.X.Offset, 0, Height)
-                Items["Outline"].Minimum = Vector2.new(Current.X.Offset, Height)
-
-                -- the first fit lands instantly so the window never flashes at its
-                -- full size before the content is there
-                if not Window.Fitted then 
-                    Window.Fitted = true
-                    Items["Outline"].Instance.Size = Window.Size
-                    return
-                end
-
-                Items["Outline"]:Tween({Size = Window.Size}, TweenInfo.new(0.25, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
-            end
-
             Library:Connect(UserInputService.InputBegan, function(Input)
                 if tostring(Input.KeyCode) == Library.MenuKeybind or tostring(Input.UserInputType) == Library.MenuKeybind then
                     if UserInputService:GetFocusedTextBox() then
@@ -3229,14 +3159,6 @@ local Library = {
                 Page.Window.Current = Page
                 Page.Active = true
 
-                -- the column canvases only report their real height once the page has
-                -- laid out, so the fit is retried for a couple of frames
-                task.spawn(function()
-                    for _ = 1, 3 do 
-                        task.wait()
-                        Page.Window:FitPage(Page)
-                    end
-                end)
             end
 
             Items["Inactive"]:Connect("MouseButton1Down", function()
