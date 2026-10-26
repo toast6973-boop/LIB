@@ -56,8 +56,9 @@ local Library = {
     -- the smallest it is allowed to get on almost empty pages
     WindowMinHeight = 170,
 
-    -- space kept under the last section: tab bar plus a little breathing room
-    WindowChrome = 44,
+    -- the tab bar and the 1px borders around it; the section padding is measured
+    -- from the column itself, so this is only the fixed part above the columns
+    WindowChrome = 34,
 
     Animation = {
         Time = 0.3,
@@ -996,11 +997,12 @@ local Library = {
         -- higher is snappier, lower gives a longer glide. the step is converted to
         -- a frame-rate independent one, so the trail feels the same at 60, 144 and
         -- 240 fps instead of getting slower as fps rises
-        Smoothness = 22,
+        Smoothness = 26,
 
-        -- a white dot with an accent outline: clean, and readable on dark and
-        -- bright scenes because of the ring around it
-        Size = 6
+        -- a small white dot ringed in the accent (red here): clean, and readable
+        -- on dark and bright scenes because of the outline around it
+        Size = 6,
+        Outline = 2
     } do
         local Cursor = Library.Cursor
 
@@ -1029,13 +1031,13 @@ local Library = {
             CornerRadius = UDim.new(1, 0)
         })
 
-        Library:Create("UIStroke", {
+        Cursor.Ring = Library:Create("UIStroke", {
             Name = "\0",
             Parent = Cursor.Dot.Instance,
             ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-            LineJoinMode = Enum.LineJoinMode.Miter,
+            LineJoinMode = Enum.LineJoinMode.Round,
             Color = Library.Theme["Accent"],
-            Thickness = 1
+            Thickness = Cursor.Outline
         }):AddToTheme({Color = 'Accent'})
 
         Library:Connect(RunService.RenderStepped, function(Delta)
@@ -2947,9 +2949,29 @@ local Library = {
                     return 
                 end
 
+                -- measured from the column's list layout, not its canvas: a
+                -- ScrollingFrame's canvas never gets shorter than the frame, so
+                -- the canvas height read as "full window" and the window never
+                -- shrank no matter how little was on the tab
+                local function ColumnHeight(Column)
+                    local Instance = Column.Instance
+                    local Layout = Instance:FindFirstChildOfClass("UIListLayout")
+                    local Height = Layout and Layout.AbsoluteContentSize.Y or 0
+
+                    if Height <= 0 then 
+                        for _, Child in ipairs(Instance:GetChildren()) do
+                            if Child:IsA("GuiObject") then 
+                                Height += Child.AbsoluteSize.Y
+                            end
+                        end
+                    end
+
+                    return Height
+                end
+
                 local Needed = math.max(
-                    Page.ColumnsData[1].Instance.AbsoluteCanvasSize.Y,
-                    Page.ColumnsData[2].Instance.AbsoluteCanvasSize.Y
+                    ColumnHeight(Page.ColumnsData[1]),
+                    ColumnHeight(Page.ColumnsData[2])
                 )
 
                 -- nothing measured yet: the layout has not run for this page
